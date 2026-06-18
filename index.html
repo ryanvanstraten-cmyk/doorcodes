@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Door Code Generator</title>
+<!--
+  Door Code Generator - INTERNAL tool. Build v3 - 2026-06-17
+  For the Simplex 7100 mechanical pushbutton lock (5 vertical buttons, single access code).
+  Generates a random door code for a tenant, with how-to instructions and a downloadable PDF.
+  Nothing is stored. Use the PDF button to save/email a copy.
+
+  Change summary v3 (2026-06-17):
+   - Reworded heading/intro to resident-facing language; dropped "Internal" from the visible title.
+   - Entry step 5 now includes knob-direction troubleshooting (wrong direction resets the buttons;
+     re-enter the code and turn the knob the opposite way). Applied to both HTML and PDF.
+
+  Change summary v2 (2026-06-17):
+   - Corrected relock behavior: lock does NOT relock on its own; you must turn the knob.
+   - HTML + PDF now state how to open AND how to lock (generic knob direction).
+   - PDF now includes a "How the lock works" section + a small numbered keypad diagram.
+   - Warning (HTML + PDF) now notes a fee applies to change the code after move-in.
+   - Redrew the lock graphic to resemble the Satin Chrome 7100; fixed clipped "BOTTOM" label.
+
+  ============================================================================
+  LOCK RULES (drive the generator - edit here if hardware rules change):
+   - 5 physical buttons, vertical: 1 = top ... 5 = bottom.
+   - No button may be used more than once in a code.
+   - Up to two buttons may be pressed at the SAME time (a "double-press").
+   - Notation: presses are separated by "." ; buttons pressed together are joined.
+       1.2.3.4  = press 1, then 2, then 3, then 4 (all single presses)
+       12.3.4   = press 1 and 2 together, then 3, then 4
+   - Code length = how many of the 5 numbers are used (4 or 5).
+   - Generated lengths alternate 4, 5, 4, 5 ...; no repeats while feasible.
+  ============================================================================
+-->
+<style>
+  :root{--ink:#1f2933;--muted:#5b6b7b;--line:#d9e0e7;--bg:#f4f6f8;--brand:#1d4e6f;
+    --brand-dk:#163b54;--accent:#eef3f7;--ok:#1d6f3f;--warn:#8a5a00;--deny:#b00020;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.5;}
+  .wrap{max-width:840px;margin:0 auto;padding:24px 18px 56px;}
+  h1{font-size:1.5rem;margin:0 0 2px;color:var(--brand-dk);}
+  .sub{color:var(--muted);font-size:.9rem;margin:0 0 18px;}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px;
+    box-shadow:0 1px 2px rgba(0,0,0,.04);margin-bottom:18px;}
+  h2{font-size:1.05rem;color:var(--brand-dk);margin:0 0 12px;}
+  h3{font-size:.95rem;color:var(--brand);margin:0 0 6px;}
+  p{margin:0 0 10px;}
+  label{display:block;font-weight:600;font-size:.88rem;margin:12px 0 5px;}
+  .hint{font-weight:400;color:var(--muted);font-size:.8rem;}
+  input[type=text]{width:100%;padding:9px 11px;font-size:1rem;
+    border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);}
+  input:focus{outline:2px solid var(--brand);border-color:var(--brand);}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media(max-width:560px){.grid2{grid-template-columns:1fr;}}
+
+  /* lock diagram */
+  .lockrow{display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap;}
+  .lockrow .diagram{flex:0 0 auto;}
+  .lockrow .lockwords{flex:1;min-width:240px;}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;}
+  .chip{display:inline-flex;align-items:center;gap:7px;background:var(--accent);
+    border:1px solid var(--line);border-radius:8px;padding:7px 11px;font-size:.85rem;}
+  .codeface{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;color:var(--brand-dk);}
+
+  /* generator */
+  .gbtns{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media(max-width:560px){.gbtns{grid-template-columns:1fr;}}
+  .gbtn{padding:15px 14px;border:1px solid var(--brand);background:var(--brand);color:#fff;
+    border-radius:10px;cursor:pointer;text-align:left;}
+  .gbtn:hover{background:var(--brand-dk);border-color:var(--brand-dk);}
+  .gbtn .t{display:block;font-size:1rem;font-weight:700;margin-bottom:3px;}
+  .gbtn .d{display:block;font-size:.8rem;opacity:.9;font-weight:400;line-height:1.35;}
+  .gbtn.alt{background:#fff;color:var(--brand);}
+  .gbtn.alt:hover{background:var(--accent);}
+
+  .result{display:none;margin-top:18px;border:1px solid var(--line);border-radius:10px;
+    overflow:hidden;background:#fcfdfe;}
+  .result .band{background:var(--brand);color:#fff;padding:8px 16px;font-size:.78rem;
+    font-weight:700;letter-spacing:.04em;text-transform:uppercase;}
+  .result .body{padding:18px 16px;}
+  .bigcode{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:800;
+    font-size:2.6rem;letter-spacing:.04em;color:var(--brand-dk);line-height:1.1;word-break:break-word;}
+  @media(max-width:560px){.bigcode{font-size:2rem;}}
+  .steps{margin:14px 0 0;font-size:.92rem;color:var(--ink);}
+  .meta{margin-top:10px;font-size:.8rem;color:var(--muted);}
+  .actions{margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;}
+  .btn-out{padding:10px 15px;font-size:.92rem;font-weight:600;background:#fff;
+    border:1px solid var(--brand);color:var(--brand);border-radius:8px;cursor:pointer;}
+  .btn-out:hover{background:var(--accent);}
+  .btn-dl{background:var(--brand);color:#fff;border-color:var(--brand);}
+  .btn-dl:hover{background:var(--brand-dk);}
+
+  ol.howto{margin:0;padding-left:20px;font-size:.92rem;}
+  ol.howto li{margin:6px 0;}
+  .warnbox{background:#fbf1dd;border:1px solid #ecd9a8;border-radius:8px;padding:12px 14px;
+    font-size:.88rem;color:#5a3d00;}
+  .warnbox strong{color:#5a3d00;}
+  footer{margin-top:6px;text-align:center;color:var(--muted);font-size:.78rem;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Door Code Generator</h1>
+  <p class="sub">Create a random door code for your front door. This HTML form does not save any data. Choose a code style and then use the PDF button to save a copy.</p>
+
+  <!-- ===================== HOW THE LOCK WORKS ===================== -->
+  <div class="card">
+    <h2>How the lock works</h2>
+    <div class="lockrow">
+      <div class="diagram" aria-hidden="true">
+        <!-- Simplex 7100: brushed-chrome vertical faceplate, 5 buttons (1 top .. 5 bottom), lever at base -->
+        <svg width="200" height="320" viewBox="0 0 250 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Simplex lock with five buttons; button 1 at top to button 5 at bottom, with a lever at the base">
+          <defs>
+            <linearGradient id="plate" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#aab2ba"/><stop offset="0.16" stop-color="#eef1f4"/>
+              <stop offset="0.5" stop-color="#cbd2d9"/><stop offset="0.84" stop-color="#eef1f4"/>
+              <stop offset="1" stop-color="#9aa3ac"/>
+            </linearGradient>
+            <linearGradient id="lever" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#f2f4f6"/><stop offset="0.5" stop-color="#c4ccd3"/>
+              <stop offset="1" stop-color="#949da6"/>
+            </linearGradient>
+            <radialGradient id="btn" cx="0.36" cy="0.3" r="0.85">
+              <stop offset="0" stop-color="#566069"/><stop offset="0.45" stop-color="#23282e"/>
+              <stop offset="1" stop-color="#0b0e11"/>
+            </radialGradient>
+          </defs>
+
+          <!-- faceplate: tapered vertical lozenge -->
+          <path d="M110 8 C141 8 159 34 159 72 L159 286 C159 326 141 352 110 352 C79 352 61 326 61 286 L61 72 C61 34 79 8 110 8 Z"
+                fill="url(#plate)" stroke="#828c96" stroke-width="1.5"/>
+          <!-- subtle brushed-metal striping -->
+          <g stroke="#ffffff" stroke-opacity="0.22" stroke-width="1">
+            <line x1="90" y1="40" x2="90" y2="324"/><line x1="102" y1="30" x2="102" y2="334"/>
+            <line x1="118" y1="30" x2="118" y2="334"/><line x1="130" y1="40" x2="130" y2="324"/>
+          </g>
+          <text x="110" y="34" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="9" letter-spacing="2.5" fill="#79838d">SIMPLEX</text>
+
+          <!-- keypad recess -->
+          <rect x="86" y="62" width="48" height="202" rx="24" fill="#191d22" stroke="#0a0d10" stroke-width="1.5"/>
+
+          <!-- buttons + numbered callouts -->
+          <g font-family="Helvetica,Arial,sans-serif">
+            <!-- leader lines -->
+            <g stroke="#9aa3ac" stroke-width="1">
+              <line x1="126" y1="92"  x2="172" y2="92"/>
+              <line x1="126" y1="130" x2="172" y2="130"/>
+              <line x1="126" y1="168" x2="172" y2="168"/>
+              <line x1="126" y1="206" x2="172" y2="206"/>
+              <line x1="126" y1="244" x2="172" y2="244"/>
+            </g>
+            <!-- button 1 -->
+            <circle cx="110" cy="92"  r="14" fill="url(#btn)" stroke="#05070a" stroke-width="1"/>
+            <ellipse cx="105" cy="87" rx="4" ry="2.4" fill="#ffffff" fill-opacity="0.28"/>
+            <text x="178" y="90" font-size="15" font-weight="bold" fill="#1d4e6f">1</text>
+            <text x="190" y="90" font-size="8.5" fill="#5b6b7b">top</text>
+            <!-- button 2 -->
+            <circle cx="110" cy="130" r="14" fill="url(#btn)" stroke="#05070a" stroke-width="1"/>
+            <ellipse cx="105" cy="125" rx="4" ry="2.4" fill="#ffffff" fill-opacity="0.28"/>
+            <text x="178" y="135" font-size="15" font-weight="bold" fill="#1d4e6f">2</text>
+            <!-- button 3 -->
+            <circle cx="110" cy="168" r="14" fill="url(#btn)" stroke="#05070a" stroke-width="1"/>
+            <ellipse cx="105" cy="163" rx="4" ry="2.4" fill="#ffffff" fill-opacity="0.28"/>
+            <text x="178" y="173" font-size="15" font-weight="bold" fill="#1d4e6f">3</text>
+            <!-- button 4 -->
+            <circle cx="110" cy="206" r="14" fill="url(#btn)" stroke="#05070a" stroke-width="1"/>
+            <ellipse cx="105" cy="201" rx="4" ry="2.4" fill="#ffffff" fill-opacity="0.28"/>
+            <text x="178" y="211" font-size="15" font-weight="bold" fill="#1d4e6f">4</text>
+            <!-- button 5 -->
+            <circle cx="110" cy="244" r="14" fill="url(#btn)" stroke="#05070a" stroke-width="1"/>
+            <ellipse cx="105" cy="239" rx="4" ry="2.4" fill="#ffffff" fill-opacity="0.28"/>
+            <text x="178" y="248" font-size="15" font-weight="bold" fill="#1d4e6f">5</text>
+            <text x="190" y="248" font-size="8.5" fill="#5b6b7b">bottom</text>
+          </g>
+
+          <!-- lever / handle at base -->
+          <rect x="74" y="288" width="72" height="26" rx="13" fill="url(#lever)" stroke="#828c96" stroke-width="1.5"/>
+          <text x="110" y="334" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="8.5" fill="#5b6b7b">turn to open</text>
+        </svg>
+      </div>
+      <div class="lockwords">
+        <p>The lock has <strong>five buttons stacked top to bottom</strong> - button <strong>1 is the top</strong> and <strong>5 is the bottom</strong>. Your code is a short sequence of presses. After entering it, you turn the knob/lever to open the door.</p>
+        <p style="margin-bottom:6px;"><strong>Two simple rules:</strong></p>
+        <ol class="howto" style="margin-bottom:12px;">
+          <li>Each button is used <strong>only once</strong> in a code - no number repeats.</li>
+          <li>You can press <strong>two buttons at the same time</strong> (a "double-press"), which counts as one step in the sequence.</li>
+        </ol>
+        <h3>Reading a code</h3>
+        <p style="margin-bottom:8px;">A <strong>dot</strong> means "then." Two numbers <strong>joined together</strong> mean press those buttons at the same time.</p>
+        <div class="legend">
+          <span class="chip"><span class="codeface">1.2.3.4</span>&nbsp;= press 1, then 2, then 3, then 4</span>
+          <span class="chip"><span class="codeface">12.3.4</span>&nbsp;= press 1 &amp; 2 together, then 3, then 4</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== GENERATE ===================== -->
+  <div class="card">
+    <h2>Generate a code</h2>
+    <p class="hint" style="margin-bottom:8px;">Optional - fill these in to personalize the PDF before generating.</p>
+    <div class="grid2">
+      <div><label for="resident">Resident name <span class="hint">(optional)</span></label><input type="text" id="resident" autocomplete="off" /></div>
+      <div><label for="unit">Property / unit <span class="hint">(optional)</span></label><input type="text" id="unit" autocomplete="off" /></div>
+    </div>
+
+    <label style="margin-top:18px;">Pick a code style</label>
+    <div class="gbtns">
+      <button type="button" class="gbtn" id="genSimple">
+        <span class="t">Simple code</span>
+        <span class="d">One button at a time. No double-presses.</span>
+      </button>
+      <button type="button" class="gbtn alt" id="genCombo">
+        <span class="t">Code with a double-press</span>
+        <span class="d">Includes at least one spot where two buttons are pressed together.</span>
+      </button>
+    </div>
+
+    <div class="result" id="result" aria-live="polite">
+      <div class="band" id="resultBand">Your new code</div>
+      <div class="body">
+        <div class="bigcode" id="bigCode"></div>
+        <div class="steps" id="stepsBox"></div>
+        <div class="meta" id="metaBox"></div>
+        <div class="actions">
+          <button type="button" class="btn-out" id="regenBtn">Generate another</button>
+          <button type="button" class="btn-out btn-dl" id="dlBtn">Download code + instructions (PDF)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== HOW TO ENTER ===================== -->
+  <div class="card">
+    <h2>How to enter your code on the door</h2>
+    <ol class="howto">
+      <li>Press the buttons in the order shown in the code, working left to right.</li>
+      <li>Where two numbers are joined (like <span class="codeface">12</span>), press <strong>both buttons at the same time</strong>, then let go together.</li>
+      <li>A dot means "then" - finish one press, then move to the next.</li>
+      <li>Press each button firmly until it clicks.</li>
+      <li>After the full code is entered, <strong>turn the knob/lever to open the door</strong>. If the door doesn't unlock, you may have turned the knob the wrong direction - this resets all the buttons. Try your code again, but this time turn the knob the opposite direction.</li>
+      <li><strong>This lock does not relock by itself.</strong> To lock up, close the door and <strong>turn the knob back the other way</strong> to throw the bolt. From inside, turn the thumbturn to lock, or to leave - no code needed.</li>
+    </ol>
+  </div>
+
+  <!-- ===================== KEEP IT SAFE ===================== -->
+  <div class="card">
+    <h2>Keep your code safe</h2>
+    <div class="warnbox">
+      <strong>This code unlocks your apartment.</strong> Keep it private. Do not post it where others can see it, and do not share it with anyone who should not have access to your home. Do not lose this document. A fee applies to change your code after move-in - contact the office. If you think your code has been seen by someone else, contact the office so it can be changed.
+    </div>
+  </div>
+
+  <footer id="stamp"></footer>
+</div>
+
+<script>
+"use strict";
+/* ========================= CONFIG ========================= */
+var BUILD="v3", BUILD_DATE="2026-06-17";
+var BUTTONS=[1,2,3,4,5];
+/* ========================================================== */
+
+/* ---------- state ---------- */
+var lengthToggle=4;          // alternates 4 <-> 5 across generations
+var codeHistory=[];          // ordered list of generated code strings
+var seen=Object.create(null);// uniqueness set
+var last=null;               // last generated {code, presses, length, style}
+
+/* ---------- helpers ---------- */
+function shuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
+
+// random composition of n into parts of 1 and 2 (e.g. 4 -> [2,1,1])
+function randomComposition(n){var out=[],rem=n;while(rem>0){if(rem===1){out.push(1);rem-=1;}else{var s=Math.random()<0.5?1:2;out.push(s);rem-=s;}}return out;}
+// composition guaranteed to contain at least one 2
+function compositionWithPair(n){var rest=randomComposition(n-2);var pos=Math.floor(Math.random()*(rest.length+1));rest.splice(pos,0,2);return rest;}
+
+// turn an ordered list of buttons into presses (arrays of size 1 or 2)
+function buildPresses(ordered,style){
+  if(style==="simple"){return ordered.map(function(b){return [b];});}
+  // "combo": at least one double-press
+  var n=ordered.length;
+  var groups,tries=0;
+  do{groups=randomComposition(n);tries++;}while(groups.indexOf(2)===-1&&tries<40);
+  if(groups.indexOf(2)===-1){groups=compositionWithPair(n);}
+  var presses=[],idx=0;
+  groups.forEach(function(sz){presses.push(ordered.slice(idx,idx+sz));idx+=sz;});
+  return presses;
+}
+
+// presses -> display string. single [3] -> "3"; pair [2,1] -> "12" (sorted); joined by "."
+function formatCode(presses){return presses.map(function(g){return g.slice().sort(function(a,b){return a-b;}).join("");}).join(".");}
+
+// presses -> plain-English steps
+function pressesToSteps(presses){
+  var parts=presses.map(function(g){
+    var s=g.slice().sort(function(a,b){return a-b;});
+    return s.length===2?("press "+s[0]+" and "+s[1]+" together"):("press "+s[0]);
+  });
+  var txt=parts.join(", then ");
+  return txt.charAt(0).toUpperCase()+txt.slice(1)+".";
+}
+
+// generate one code of the current toggled length
+function generate(style){
+  var L=lengthToggle;
+  var presses,str,tries=0;
+  do{
+    var chosen=shuffle(BUTTONS.slice()).slice(0,L);
+    presses=buildPresses(chosen,style);
+    str=formatCode(presses);
+    tries++;
+  }while(seen[str]&&tries<300);
+  seen[str]=true;codeHistory.push(str);
+  lengthToggle=(lengthToggle===4)?5:4; // flip for next time
+  last={code:str,presses:presses,length:L,style:style};
+  return last;
+}
+
+/* ---------- render ---------- */
+function render(g){
+  document.getElementById("result").style.display="block";
+  document.getElementById("resultBand").textContent=
+    (g.style==="simple"?"Simple code":"Code with a double-press")+" - "+g.length+" numbers";
+  document.getElementById("bigCode").textContent=g.code;
+  document.getElementById("stepsBox").innerHTML="<strong>On the keypad:</strong> "+pressesToSteps(g.presses);
+  var dbl=g.presses.filter(function(p){return p.length===2;}).length;
+  document.getElementById("metaBox").textContent=
+    "Uses "+g.length+" of the 5 buttons"+(dbl?(", with "+dbl+" double-press"+(dbl>1?"es":"")):", no double-presses")+". Each button is used once.";
+  document.getElementById("result").scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+document.getElementById("genSimple").addEventListener("click",function(){render(generate("simple"));});
+document.getElementById("genCombo").addEventListener("click",function(){render(generate("combo"));});
+document.getElementById("regenBtn").addEventListener("click",function(){if(last)render(generate(last.style));});
+
+/* ---------- date / stamp ---------- */
+function todayStr(){var d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+document.getElementById("stamp").textContent="Door Code Generator - build "+BUILD+", "+BUILD_DATE+". For the Simplex 7100 keypad lock.";
+
+/* ============ styled 1-page PDF (pure JS, no libraries) ============ */
+var PW=612, PH=792;
+function COL(hex){hex=hex.replace('#','');var n=parseInt(hex,16);
+  return ((n>>16&255)/255).toFixed(3)+" "+((n>>8&255)/255).toFixed(3)+" "+((n&255)/255).toFixed(3);}
+function pesc(s){return String(s).replace(/[^\x20-\x7E]/g,"?").replace(/\\/g,"\\\\").replace(/\(/g,"\\(").replace(/\)/g,"\\)");}
+function wrap(s,max){s=String(s);var w=s.split(" "),out=[],cur="";w.forEach(function(x){if((cur+" "+x).trim().length>max){if(cur)out.push(cur);cur=x;}else cur=(cur?cur+" ":"")+x;});if(cur)out.push(cur);return out;}
+
+function buildCodePdf(d){
+  var C=[];
+  function rect(x,yt,w,h,col){C.push(col+" rg "+x.toFixed(1)+" "+(PH-yt-h).toFixed(1)+" "+w.toFixed(1)+" "+h.toFixed(1)+" re f");}
+  function lineH(x1,x2,yt,col){C.push(col+" RG 0.7 w "+x1.toFixed(1)+" "+(PH-yt).toFixed(1)+" m "+x2.toFixed(1)+" "+(PH-yt).toFixed(1)+" l S");}
+  function txt(x,yt,s,font,size,col){C.push("BT "+col+" rg /"+font+" "+size+" Tf "+x.toFixed(1)+" "+(PH-yt).toFixed(1)+" Td ("+pesc(s)+") Tj ET");}
+  // filled circle (cx, yt in top-origin coords)
+  function disc(cx,yt,r,col){var cy=PH-yt,k=(0.5523*r);
+    C.push(col+" rg "+(cx+r).toFixed(2)+" "+cy.toFixed(2)+" m "+
+      (cx+r).toFixed(2)+" "+(cy+k).toFixed(2)+" "+(cx+k).toFixed(2)+" "+(cy+r).toFixed(2)+" "+cx.toFixed(2)+" "+(cy+r).toFixed(2)+" c "+
+      (cx-k).toFixed(2)+" "+(cy+r).toFixed(2)+" "+(cx-r).toFixed(2)+" "+(cy+k).toFixed(2)+" "+(cx-r).toFixed(2)+" "+cy.toFixed(2)+" c "+
+      (cx-r).toFixed(2)+" "+(cy-k).toFixed(2)+" "+(cx-k).toFixed(2)+" "+(cy-r).toFixed(2)+" "+cx.toFixed(2)+" "+(cy-r).toFixed(2)+" c "+
+      (cx+k).toFixed(2)+" "+(cy-r).toFixed(2)+" "+(cx+r).toFixed(2)+" "+(cy-k).toFixed(2)+" "+(cx+r).toFixed(2)+" "+cy.toFixed(2)+" c f");}
+  var navy="0.114 0.306 0.435", navyDk="0.086 0.231 0.329", ink="0.122 0.161 0.200",
+      muted="0.357 0.420 0.482", white="1 1 1", whiteSoft="0.85 0.89 0.93", linec="0.851 0.878 0.906";
+
+  // header band
+  rect(0,0,PW,84,navy);
+  txt(50,46,"Your Apartment Door Code","F2",19,white);
+  txt(50,68,d.headerSub||"Keep this private - it unlocks your home.","F1",11,whiteSoft);
+  txt(430,40,"Date: "+d.dateStr,"F1",10,whiteSoft);
+
+  var M=50, W=PW-100, y=110;
+
+  // code box
+  rect(M,y,W,68,COL("#eef3f7"));
+  txt(M+14,y+22,"YOUR CODE","F2",9,navy);
+  txt(M+14,y+55,d.code,"F3",30,navyDk);   // Courier-Bold, large
+  y+=68+16;
+
+  // what to press (this specific code)
+  txt(M,y,"WHAT TO PRESS","F2",10,navy); y+=15;
+  wrap(d.steps,94).forEach(function(ln){txt(M,y,ln,"F1",10.5,ink);y+=14;});
+  y+=12;
+
+  // how the lock works (text on left, mini keypad diagram on right)
+  txt(M,y,"HOW THE LOCK WORKS","F2",10,navy);
+  var lockTop=y+12;
+  // mini keypad diagram on the right
+  var dx=520, dTop=y-6;
+  rect(dx-20,dTop,40,128,COL("#1a1e23"));
+  var by=[dTop+20,dTop+44,dTop+68,dTop+92,dTop+116];
+  for(var bi=0;bi<5;bi++){ disc(dx,by[bi],8,COL("#dfe5ea")); txt(dx-2.6,by[bi]+3.2,String(bi+1),"F2",9,navyDk); }
+  txt(dx-2.6,dTop-4,"top","F1",6.5,muted);
+  // wrap the text to the left of the diagram
+  y=lockTop;
+  [ "The lock has five buttons stacked top to bottom: button 1 is the top, button 5 is the bottom.",
+    "Each button is used only once in a code - no number repeats.",
+    "Two buttons can be pressed at the same time (a \"double-press\"); this counts as one step.",
+    "A dot ( . ) means \"then.\" Two numbers joined together (like 12) mean press those buttons together."
+  ].forEach(function(s){ wrap("- "+s,74).forEach(function(ln,j){txt(M+(j>0?8:0),y,ln,"F1",9.5,ink);y+=12;}); });
+  if(y<dTop+132) y=dTop+132;  // clear the diagram
+  y+=10;
+
+  // entering on the door
+  txt(M,y,"HOW TO OPEN AND LOCK THE DOOR","F2",10,navy); y+=15;
+  d.howto.forEach(function(step,i){
+    wrap((i+1)+". "+step,96).forEach(function(ln,j){txt(M+(j>0?12:0),y,ln,"F1",10,ink);y+=13;});
+    y+=2;
+  });
+  y+=10;
+
+  // warning box
+  var wl=wrap(d.warn,94); var wh=wl.length*12+16;
+  rect(M,y,W,wh,COL("#fbf1dd")); var wy=y+15;
+  wl.forEach(function(ln){txt(M+12,wy,ln,"F2",9,COL("#5a3d00"));wy+=12;});
+  y+=wh;
+
+  // footer
+  lineH(M,PW-M,766,linec);
+  txt(M,778,d.stamp,"F1",8,muted);
+
+  var content=C.join("\n");
+  var objs=[
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R /F2 6 0 R /F3 7 0 R >> >> /Contents 4 0 R >>",
+    "<< /Length "+content.length+" >>\nstream\n"+content+"\nendstream",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold >>"
+  ];
+  var pdf="%PDF-1.4\n", off=[];
+  objs.forEach(function(o,i){off.push(pdf.length);pdf+=(i+1)+" 0 obj\n"+o+"\nendobj\n";});
+  var xref=pdf.length;
+  pdf+="xref\n0 "+(objs.length+1)+"\n0000000000 65535 f \n";
+  off.forEach(function(o){pdf+=("0000000000"+o).slice(-10)+" 00000 n \n";});
+  pdf+="trailer\n<< /Size "+(objs.length+1)+" /Root 1 0 R >>\nstartxref\n"+xref+"\n%%EOF";
+  return new Blob([pdf],{type:"application/pdf"});
+}
+
+var HOWTO=[
+  "Press the buttons in the order shown in your code, working left to right.",
+  "Where two numbers are joined (like 12), press both buttons at the same time, then let go together.",
+  "A dot means \"then\" - finish one press, then move to the next.",
+  "Press each button firmly until it clicks.",
+  "After the full code is entered, turn the knob/lever to open the door. If the door doesn't unlock, you may have turned the knob the wrong direction - this resets all the buttons. Try your code again, but this time turn the knob the opposite direction.",
+  "This lock does NOT relock by itself. To lock up, close the door and turn the knob back the other way to throw the bolt. From inside, turn the thumbturn to lock, or to leave - no code needed."
+];
+
+document.getElementById("dlBtn").addEventListener("click",function(){
+  if(!last){alert("Generate a code first.");return;}
+  var resident=document.getElementById("resident").value.trim();
+  var unit=document.getElementById("unit").value.trim();
+  var sub=[resident,unit].filter(Boolean).join("  -  ");
+  var d={
+    code:last.code,
+    steps:pressesToSteps(last.presses),
+    howto:HOWTO,
+    warn:"IMPORTANT: This code unlocks your apartment. Keep it private. Do not post it where others can see it, and do not share it with anyone who should not have access to your home. Do not lose this document. A fee applies to change your code after move-in - contact the office. If you think someone else has seen your code, contact the office so it can be changed.",
+    headerSub:sub||"Keep this private - it unlocks your home.",
+    dateStr:todayStr(),
+    stamp:"Simplex 7100 keypad lock. Tool build "+BUILD+" ("+BUILD_DATE+")."
+  };
+  var blob=buildCodePdf(d);
+  var parts=[unit,resident,"Door-Code",todayStr()].filter(Boolean).join("_");
+  var fname=(parts||"Door-Code_"+todayStr()).replace(/[^\w\-]+/g,"_").replace(/_+/g,"_")+".pdf";
+  var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=fname;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(function(){URL.revokeObjectURL(a.href);},1500);
+});
+</script>
+</body>
+</html>

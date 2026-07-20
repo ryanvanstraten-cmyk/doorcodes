@@ -5,10 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Door Code Generator</title>
 <!--
-  Door Code Generator - INTERNAL tool. Build v5 - 2026-07-07
+  Door Code Generator - INTERNAL tool. Build v6 - 2026-07-20
   For the Simplex 7100 mechanical pushbutton lock (5 vertical buttons, single access code).
   Generates a random door code for a tenant, with how-to instructions.
   Nothing is stored. Use the email button to send the code to the property manager.
+
+  Change summary v6 (2026-07-20):
+   - Added "Copy Code to Text Property Manager" button: copies a short
+     SMS-friendly message (code + notation key, name/unit) to the clipboard
+     for pasting into a text. No phone number shown (per Ryan, 2026-07-20).
 
   Change summary v5 (2026-07-07):
    - Added no-mail-app fallback: after clicking Email, if the page still has focus
@@ -126,7 +131,7 @@
 <body>
 <div class="wrap">
   <h1>Door Code Generator</h1>
-  <p class="sub">Create a random door code for your front door. This HTML form does not save any data. Choose a code style, then use the email button to send your code to your property manager.</p>
+  <p class="sub">Create a random door code for your front door. This HTML form does not save any data. Choose a code style, then use the email or text buttons to send your code to your property manager.</p>
 
   <!-- ===================== HOW THE LOCK WORKS ===================== -->
   <div class="card">
@@ -223,7 +228,7 @@
   <!-- ===================== GENERATE ===================== -->
   <div class="card">
     <h2>Generate a code</h2>
-    <p class="hint" style="margin-bottom:8px;">Optional - fill these in to personalize the email before generating.</p>
+    <p class="hint" style="margin-bottom:8px;">Optional - fill these in to personalize the email or text before generating.</p>
     <div class="grid2">
       <div><label for="resident">Resident name <span class="hint">(optional)</span></label><input type="text" id="resident" autocomplete="off" /></div>
       <div><label for="unit">Property / unit <span class="hint">(optional)</span></label><input type="text" id="unit" autocomplete="off" /></div>
@@ -250,6 +255,7 @@
         <div class="actions">
           <button type="button" class="btn-out" id="regenBtn">Generate another</button>
           <button type="button" class="btn-out btn-dl" id="emailBtn">Email to Property Manager</button>
+          <button type="button" class="btn-out" id="textBtn">Copy Code to Text Property Manager</button>
         </div>
         <div class="meta" id="mailHint" style="display:none;">Your email app should have opened with the code filled in - just add your property manager's email address and hit send.</div>
         <div class="fallback" id="mailFallback">
@@ -259,6 +265,10 @@
             <button type="button" class="btn-out" id="copyBtn">Copy message</button>
             <span class="copied" id="copiedNote">Copied - paste it into a new email.</span>
           </div>
+        </div>
+        <div class="fallback" id="textBox">
+          <p id="textBoxMsg"></p>
+          <textarea id="textMsg" readonly aria-label="Text message to copy" style="min-height:110px;"></textarea>
         </div>
       </div>
     </div>
@@ -291,7 +301,7 @@
 <script>
 "use strict";
 /* ========================= CONFIG ========================= */
-var BUILD="v5", BUILD_DATE="2026-07-07";
+var BUILD="v6", BUILD_DATE="2026-07-20";
 var BUTTONS=[1,2,3,4,5];
 /* ========================================================== */
 
@@ -357,6 +367,7 @@ function render(g){
   document.getElementById("mailHint").style.display="none";
   document.getElementById("mailFallback").style.display="none";
   document.getElementById("copiedNote").style.display="none";
+  document.getElementById("textBox").style.display="none";
   document.getElementById("resultBand").textContent=
     (g.style==="simple"?"Simple code":"Code with a double-press")+" - "+g.length+" numbers";
   document.getElementById("bigCode").textContent=g.code;
@@ -414,6 +425,7 @@ document.getElementById("emailBtn").addEventListener("click",function(){
   var em=buildEmail();
   document.getElementById("mailHint").style.display="none";
   document.getElementById("mailFallback").style.display="none";
+  document.getElementById("textBox").style.display="none";
 
   window.location.href="mailto:?subject="+encodeURIComponent(em.subject)+"&body="+encodeURIComponent(em.body);
 
@@ -428,6 +440,45 @@ document.getElementById("emailBtn").addEventListener("click",function(){
       document.getElementById("mailHint").style.display="block";
     }
   },1500);
+});
+
+/* ============ Copy Code to Text Property Manager (clipboard) ============ */
+/* Copies a short SMS-friendly version of the code for pasting into a text to
+   the property manager. No phone number is shown or pre-filled (per Ryan,
+   2026-07-20) - residents text the property manager contact they already have. */
+
+function buildText(){
+  var resident=document.getElementById("resident").value.trim();
+  var unit=document.getElementById("unit").value.trim();
+  var lines=[
+    "New door code request"+(unit?" - "+unit:"")+(resident?" - "+resident:""),
+    "Door code: "+last.code,
+    "(a dot means 'then'; joined numbers are pressed at the same time)"
+  ];
+  if(!resident&&!unit)lines.push("From: (add your name and unit)");
+  return lines.join("\n");
+}
+
+document.getElementById("textBtn").addEventListener("click",function(){
+  if(!last){alert("Generate a code first.");return;}
+  var txt=buildText();
+  document.getElementById("mailHint").style.display="none";
+  document.getElementById("mailFallback").style.display="none";
+  var box=document.getElementById("textBox");
+  var ta=document.getElementById("textMsg");
+  ta.value=txt;
+  function show(ok){
+    document.getElementById("textBoxMsg").innerHTML=ok
+      ?"<strong>Copied.</strong> Open your messaging app, start a text to the property manager, and paste the message below."
+      :"<strong>Couldn't copy automatically.</strong> Select the message below, copy it, and paste it into a text to the property manager.";
+    box.style.display="block";
+    box.scrollIntoView({behavior:"smooth",block:"nearest"});
+  }
+  function legacyText(){box.style.display="block";ta.focus();ta.select();
+    try{document.execCommand("copy");show(true);}catch(e){show(false);}}
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){show(true);},function(){legacyText();});
+  }else{legacyText();}
 });
 
 /* copy button: modern clipboard API with select+execCommand fallback */
